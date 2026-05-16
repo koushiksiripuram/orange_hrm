@@ -5,35 +5,35 @@ pipeline {
         IMAGE_NAME = "koushiksiripuram/orangehrm-app"
         IMAGE_TAG = "${BUILD_NUMBER}"
     }
+    
     tools {
-        // This instructs Jenkins to inject the 'my-docker' CLI we set up in the UI
         dockerTool 'my-docker'
     }
 
     stages {
-
         stage('Checkout Code') {
             steps {
-                git  branch: 'main', url: 'https://github.com/koushiksiripuram/orange_hrm.git'
+                git branch: 'main', url: 'https://github.com/koushiksiripuram/orange_hrm.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG ./app'
+                // Fixed path from ./app to . because Dockerfile is in the root directory
+                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
                 sh 'docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest' 
             }
         }
 
         stage('Docker Hub Login') {
             steps {
+                // Kept secure using --password-stdin to avoid exposing your password in logs
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub-creds',
                     usernameVariable: 'DOCKER_USER',
                     passwordVariable: 'DOCKER_PASS'
                 )]) {
-
-                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
                 }
             }
         }
@@ -47,7 +47,8 @@ pipeline {
 
         stage('Redeploy Containers') {
             steps {
-                sh 'docker compose down'
+                // Added --remove-orphans to keep the server clean during recreation
+                sh 'docker compose down --remove-orphans'
                 sh 'docker compose pull'
                 sh 'docker compose up -d'
             }
