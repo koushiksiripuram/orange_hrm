@@ -5,6 +5,10 @@ pipeline {
         IMAGE_NAME = "koushiksiripuram/orangehrm-app"
         IMAGE_TAG = "${BUILD_NUMBER}"
     }
+    tools {
+        // This instructs Jenkins to inject the 'my-docker' CLI we set up in the UI
+        dockerTool 'my-docker'
+    }
 
     stages {
 
