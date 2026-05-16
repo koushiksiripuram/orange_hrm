@@ -1,10 +1,8 @@
 FROM php:8.3-apache-bookworm
 
-ENV OHRM_VERSION 5.8.1
-ENV OHRM_MD5 173cbdffe595246d7e54ec2f2330857d
-
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
+# 1. Install system dependencies and build-essential tools
 RUN set -ex; \
 	savedAptMark="$(apt-mark showmanual)"; \
 	apt-get update; \
@@ -15,23 +13,11 @@ RUN set -ex; \
 		libzip-dev \
 		libldap2-dev \
 		libicu-dev \
-		unzip \
 	; \
 	\
-	cd .. && rm -r html; \
-	curl -fSL -o orangehrm.zip "https://sourceforge.net/projects/orangehrm/files/stable/${OHRM_VERSION}/orangehrm-${OHRM_VERSION}.zip"; \
-	echo "${OHRM_MD5} orangehrm.zip" | md5sum -c -; \
-	unzip -q orangehrm.zip "orangehrm-${OHRM_VERSION}/*"; \
-	mv orangehrm-$OHRM_VERSION html; \
-	rm -rf orangehrm.zip; \
-	chown www-data:www-data html; \
-	chown -R www-data:www-data html/lib/confs html/src/cache html/src/log html/src/config; \
-	chmod -R 775 html/lib/confs html/src/cache html/src/log html/src/config; \
-	\
+	# 2. Configure and install PHP extensions
 	docker-php-ext-configure gd --with-freetype --with-jpeg; \
-	docker-php-ext-configure ldap \
-	    --with-libdir=lib/$(uname -m)-linux-gnu/ \
-	; \
+	docker-php-ext-configure ldap --with-libdir=lib/$(uname -m)-linux-gnu/; \
 	\
 	docker-php-ext-install -j "$(nproc)" \
 		gd \
@@ -42,12 +28,15 @@ RUN set -ex; \
 		ldap \
 	; \
 	\
+	# 3. Clean up build dependencies to keep the image small
 	apt-mark auto '.*' > /dev/null; \
 	apt-mark manual $savedAptMark; \
 	ldd "$(php -r 'echo ini_get("extension_dir");')"/*.so \
+
 		| awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); print so }' \
 		| sort -u \
 		| xargs -r dpkg-query -S \
+
 		| cut -d: -f1 \
 		| sort -u \
 		| xargs -rt apt-mark manual; \
@@ -56,6 +45,7 @@ RUN set -ex; \
 	rm -rf /var/cache/apt/archives; \
 	rm -rf /var/lib/apt/lists/*
 
+# 4. Configure Apache and PHP settings
 RUN { \
 		echo 'opcache.memory_consumption=128'; \
 		echo 'opcache.interned_strings_buffer=8'; \
@@ -68,5 +58,16 @@ RUN { \
 	if command -v a2enmod; then \
 		a2enmod rewrite; \
 	fi;
+
+# 5. Copy your local project files into the container
+WORKDIR /var/www/html
+COPY . .
+
+# 6. Set correct permissions for runtime directories
+RUN chown -R www-data:www-data /var/www/html \
+    && find /var/www/html -type d -exec chmod 755 {} \; \
+    && find /var/www/html -type f -exec chmod 644 {} \; \
+    && mkdir -p lib/confs src/cache src/log src/config \
+    && chmod -R 775 lib/confs src/cache src/log src/config
 
 VOLUME ["/var/www/html"]
